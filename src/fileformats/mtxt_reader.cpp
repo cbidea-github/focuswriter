@@ -1,3 +1,9 @@
+/*
+	SPDX-FileCopyrightText: 2025 cbidea
+
+	SPDX-License-Identifier: GPL-3.0-or-later
+*/
+
 #include "mtxt_reader.h"
 #include <QTextStream>
 #include <QIODevice>

@@ -1,3 +1,9 @@
+/*
+	SPDX-FileCopyrightText: 2025 cbidea
+
+	SPDX-License-Identifier: GPL-3.0-or-later
+*/
+
 #ifndef FOCUSWRITER_MTXT_WRITER_H
 #define FOCUSWRITER_MTXT_WRITER_H
 
