@@ -5,7 +5,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 # Configure project
-project(focuswriter VERSION 1.8.0 LANGUAGES CXX)
+project(focuswriter VERSION 1.8.13 LANGUAGES CXX)
 
 set(project_copyright "2008-2025 Graeme Gott")
 
@@ -20,7 +20,7 @@ if (WIN32)
 endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Concurrent Core Gui LinguistTools Multimedia Network PrintSupport Widgets)
-find_package(Iconv REQUIRED)
+#find_package(Iconv REQUIRED)
 find_package(ZLIB REQUIRED)
 include(GNUInstallDirs)
 
@@ -171,6 +171,21 @@ qt_add_executable(focuswriter
 	${translations_QM}
 )
 
+target_compile_definitions(focuswriter PRIVATE NOMINMAX)
+
+# --- libiconv (Windows + vcpkg) ---
+if (WIN32)
+    target_include_directories(focuswriter PRIVATE
+        ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include
+    )
+
+    target_link_directories(focuswriter PRIVATE
+        ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib
+    )
+
+    target_link_libraries(focuswriter PRIVATE iconv)
+endif()
+
 target_include_directories(focuswriter PRIVATE
 	src
 	src/fileformats
@@ -180,15 +195,14 @@ target_include_directories(focuswriter PRIVATE
 )
 
 target_link_libraries(focuswriter PRIVATE
-	Qt6::Concurrent
-	Qt6::Core
-	Qt6::Gui
-	Qt6::Multimedia
-	Qt6::Network
-	Qt6::PrintSupport
-	Qt6::Widgets
-	Iconv::Iconv
-	ZLIB::ZLIB
+    Qt6::Concurrent
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Multimedia
+    Qt6::Network
+    Qt6::PrintSupport
+    Qt6::Widgets
+    ZLIB::ZLIB
 )
 
 # Create translations
