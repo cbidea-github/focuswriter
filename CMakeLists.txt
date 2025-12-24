@@ -156,6 +156,8 @@ qt_add_executable(focuswriter
 	src/fileformats/rtf_reader.cpp
 	src/fileformats/rtf_tokenizer.cpp
 	src/fileformats/rtf_writer.cpp
+	src/fileformats/mtxt_reader.cpp
+	src/fileformats/mtxt_writer.cpp
 	src/fileformats/txt_reader.cpp
 	src/spelling/dictionary_dialog.cpp
 	src/spelling/dictionary_manager.cpp
