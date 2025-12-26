@@ -5,99 +5,114 @@
 */
 
 #include "mtxt_reader.h"
+
 #include <QTextStream>
-#include <QIODevice>
+#include <QTextBlockFormat>
 
-//--------------------------------------------------
-
-MtxtReader::MtxtReader()
-{
-}
+//-----------------------------------------------------------------------------
 
 bool MtxtReader::canRead(QIODevice* device)
 {
-	return device->peek(32).startsWith("/* ::MTXT1:: */");
+    return device->peek(9) == "/*MTXT1*/";
 }
 
-//--------------------------------------------------
+//-----------------------------------------------------------------------------
 
 void MtxtReader::readData(QIODevice* device)
 {
-	QTextStream stream(device);
+    device->setTextModeEnabled(true);
 
-	if (stream.readLine() != "/* ::MTXT1:: */") {
-		m_error = QStringLiteral("Invalid MarkedText file");
-		return;
-	}
+    QByteArray header = device->readLine();
+    if (!header.startsWith("/*MTXT1*/")) {
+        m_error = QStringLiteral("Not a Marked Text file.");
+        return;
+    }
 
-	m_cursor.beginEditBlock();
+    QTextStream stream(device);
+    stream.setEncoding(QStringConverter::Utf8);
 
-	QVector<Mark> stack;
-	QTextCharFormat base;
+    m_cursor.beginEditBlock();
 
-	while (!stream.atEnd()) {
-		parseLine(stream.readLine(), stack, base);
-		m_cursor.insertBlock();
-	}
+    bool first = true;
 
-	m_cursor.endEditBlock();
-}
+    while (!stream.atEnd()) {
+        QString line = stream.readLine();
 
-//--------------------------------------------------
+        if (!first) {
+			m_cursor.insertBlock();
 
-static bool startsWithAt(const QString& s, int i, const QString& t)
-{
-	return s.mid(i, t.length()) == t;
-}
-
-void MtxtReader::parseLine(const QString& s, QVector<Mark>& stack, QTextCharFormat& base)
-{
-	int i = 0;
-
-	while (i < s.length()) {
-		if (s[i] == '\\') {
-			if (i + 1 < s.length())
-				m_cursor.insertText(s.mid(++i, 1), base);
-			i++;
-			continue;
+			QTextBlockFormat clean;
+			clean.setAlignment(Qt::AlignLeft | Qt::AlignAbsolute);
+			m_cursor.setBlockFormat(clean);
 		}
+		first = false;
 
-		if (startsWithAt(s, i, "***")) { toggle(stack, "***"); i += 3; continue; }
-		if (startsWithAt(s, i, "**"))  { toggle(stack, "**");  i += 2; continue; }
-		if (startsWithAt(s, i, "~~"))  { toggle(stack, "~~");  i += 2; continue; }
-		if (startsWithAt(s, i, "*"))   { toggle(stack, "*");   i += 1; continue; }
-		if (startsWithAt(s, i, "_"))   { toggle(stack, "_");   i += 1; continue; }
+        QTextCharFormat current;
+        QString buffer;
 
-		QTextCharFormat f = base;
-		for (const Mark& m : stack) {
-			if (m.fmt.fontWeight() == QFont::Bold) f.setFontWeight(QFont::Bold);
-			if (m.fmt.fontItalic())                f.setFontItalic(true);
-			if (m.fmt.fontUnderline())             f.setFontUnderline(true);
-			if (m.fmt.fontStrikeOut())             f.setFontStrikeOut(true);
-		}
+        bool centered = false;
 
-		m_cursor.insertText(s.mid(i, 1), f);
-		i++;
-	}
-}
+        auto flush = [&]() {
+            if (!buffer.isEmpty()) {
+                m_cursor.insertText(buffer, current);
+                buffer.clear();
+            }
+        };
 
-//--------------------------------------------------
+        for (int i = 0; i < line.length(); ++i) {
+            const QChar c = line.at(i);
 
-void MtxtReader::toggle(QVector<Mark>& stack, const QString& t)
-{
-	for (int i = stack.size() - 1; i >= 0; --i) {
-		if (stack[i].token == t) {
-			stack.resize(i);
-			return;
-		}
-	}
+            if (c == '\\' && i + 1 < line.length()) {
+                buffer += line.at(++i);
+                continue;
+            }
 
-	QTextCharFormat f;
-	if (t == "*")   f.setFontItalic(true);
-	if (t == "**")  f.setFontWeight(QFont::Bold);
-	if (t == "***") { f.setFontWeight(QFont::Bold); f.setFontItalic(true); }
-	if (t == "_")   f.setFontUnderline(true);
-	if (t == "~~")  f.setFontStrikeOut(true);
+            if (i == 0 && c == '>') {
+                QTextBlockFormat bf = m_cursor.blockFormat();
+                bf.setAlignment(Qt::AlignCenter);
+                m_cursor.mergeBlockFormat(bf);
+                centered = true;
+                continue;
+            }
 
-	stack.push_back({ t, f });
+            if (centered && c == '<' && i == line.length() - 1)
+                continue;
+
+            if (c == '*' && line.mid(i,3) == "***") {
+                flush();
+                current.setFontWeight(current.fontWeight()==QFont::Bold ? QFont::Normal : QFont::Bold);
+                current.setFontItalic(!current.fontItalic());
+                i += 2;
+                continue;
+            }
+            if (c == '*' && line.mid(i,2) == "**") {
+                flush();
+                current.setFontWeight(current.fontWeight()==QFont::Bold ? QFont::Normal : QFont::Bold);
+                i += 1;
+                continue;
+            }
+            if (c == '*') {
+                flush();
+                current.setFontItalic(!current.fontItalic());
+                continue;
+            }
+            if (c == '_') {
+                flush();
+                current.setFontUnderline(!current.fontUnderline());
+                continue;
+            }
+            if (c == '~' && line.mid(i,2) == "~~") {
+                flush();
+                current.setFontStrikeOut(!current.fontStrikeOut());
+                i += 1;
+                continue;
+            }
+
+            buffer += c;
+        }
+
+        flush();
+    }
+
+    m_cursor.endEditBlock();
 }

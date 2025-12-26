@@ -6,83 +6,107 @@
 
 #include "mtxt_writer.h"
 
-#include <QTextDocument>
 #include <QTextBlock>
-#include <QTextFragment>
 #include <QTextCharFormat>
-#include <QIODevice>
+#include <QTextDocument>
 
-//--------------------------------------------------
+//-----------------------------------------------------------------------------
 
-static QString esc(const QString& s)
+struct StyleState {
+    bool bold = false;
+    bool italic = false;
+    bool underline = false;
+    bool strike = false;
+};
+
+//-----------------------------------------------------------------------------
+
+static StyleState getState(const QTextCharFormat& f)
 {
-	QString out;
-	for (QChar c : s) {
-		if (c=='\\' || c=='*' || c=='_' || c=='~')
-			out+='\\';
-		out+=c;
-	}
-	return out;
+    StyleState s;
+    s.bold = (f.fontWeight() == QFont::Bold);
+    s.italic = f.fontItalic();
+    s.underline = f.fontUnderline();
+    s.strike = f.fontStrikeOut();
+    return s;
 }
 
-//--------------------------------------------------
+//-----------------------------------------------------------------------------
 
-bool MtxtWriter::write(QIODevice* dev, const QTextDocument* doc)
+static void emitStyle(QIODevice* d, const StyleState& from, const StyleState& to)
 {
-	dev->write("/* ::MTXT1:: */\n");
+    auto close = [&](bool f, bool t, const char* m){
+        if (f && !t) d->write(m);
+    };
+    auto open = [&](bool f, bool t, const char* m){
+        if (!f && t) d->write(m);
+    };
 
-	struct State {
-		bool b=false,i=false,u=false,s=false;
-	};
+    // Close in reverse nesting order
+    close(from.strike, to.strike, "~~");
+    close(from.underline, to.underline, "_");
+    close(from.italic, to.italic, "*");
+    close(from.bold, to.bold, "**");
 
-	State cur;
+    // Open in canonical nesting order
+    open(from.bold, to.bold, "**");
+    open(from.italic, to.italic, "*");
+    open(from.underline, to.underline, "_");
+    open(from.strike, to.strike, "~~");
+}
 
-	auto open = [&](bool want, bool& curFlag, const char* on, QByteArray& out){
-		if (want && !curFlag) { out += on; curFlag = true; }
-	};
+//-----------------------------------------------------------------------------
 
-	auto close = [&](bool want, bool& curFlag, const char* off, QByteArray& out){
-		if (!want && curFlag) { out += off; curFlag = false; }
-	};
+static QString escape(const QString& s, bool inStrike)
+{
+    QString out;
+    for (int i = 0; i < s.length(); ++i) {
+        const QChar c = s.at(i);
 
-	for (QTextBlock b = doc->firstBlock(); b.isValid(); b = b.next()) {
+        if (!inStrike && c == '~' && i + 1 < s.length() && s.at(i+1) == '~') {
+            out += "\\~~";
+            ++i;
+            continue;
+        }
 
-		for (auto it = b.begin(); !it.atEnd(); ++it) {
-			QTextFragment f = it.fragment();
-			if (!f.isValid()) continue;
+        if (c == '*' || c == '_' || c == '>' || c == '<' || c == '\\')
+            out += '\\';
 
-			QTextCharFormat fmt = f.charFormat();
-			bool wantB = fmt.fontWeight()==QFont::Bold;
-			bool wantI = fmt.fontItalic();
-			bool wantU = fmt.fontUnderline();
-			bool wantS = fmt.fontStrikeOut();
+        out += c;
+    }
+    return out;
+}
 
-			QByteArray out;
+//-----------------------------------------------------------------------------
 
-			close(wantB, cur.b, "**", out);
-			close(wantI, cur.i, "*",  out);
-			close(wantU, cur.u, "_",  out);
-			close(wantS, cur.s, "~~", out);
+bool MtxtWriter::write(QIODevice* device, const QTextDocument* document)
+{
+    device->write("/*MTXT1*/\n");
 
-			open(wantS, cur.s, "~~", out);
-			open(wantU, cur.u, "_",  out);
-			open(wantI, cur.i, "*",  out);
-			open(wantB, cur.b, "**", out);
+    for (QTextBlock block = document->begin(); block.isValid(); block = block.next()) {
 
-			QString txt = esc(f.text());
-			out += txt.toUtf8();
-			dev->write(out);
-		}
+        QTextBlockFormat bf = block.blockFormat();
+        if (bf.alignment() == Qt::AlignCenter)
+            device->write(">");
 
-		QByteArray end;
-		if (cur.b) { end += "**"; cur.b=false; }
-		if (cur.i) { end += "*";  cur.i=false; }
-		if (cur.u) { end += "_";  cur.u=false; }
-		if (cur.s) { end += "~~"; cur.s=false; }
+        StyleState current;
 
-		end += "\n";
-		dev->write(end);
-	}
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            QTextFragment frag = it.fragment();
+            StyleState next = getState(frag.charFormat());
 
-	return true;
+            emitStyle(device, current, next);
+            device->write(escape(frag.text(), current.strike).toUtf8());
+            current = next;
+        }
+
+        emitStyle(device, current, StyleState());
+
+        if (bf.alignment() == Qt::AlignCenter)
+            device->write("<");
+
+        device->write("\n");
+    }
+
+    return true;
 }

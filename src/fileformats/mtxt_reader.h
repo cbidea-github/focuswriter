@@ -4,29 +4,15 @@
 	SPDX-License-Identifier: GPL-3.0-or-later
 */
 
-#ifndef FOCUSWRITER_MTXT_READER_H
-#define FOCUSWRITER_MTXT_READER_H
+#pragma once
 
 #include "format_reader.h"
-#include <QVector>
-#include <QString>
-#include <QTextCharFormat>
+#include <QIODevice>
+#include <QStringConverter>
 
 class MtxtReader : public FormatReader
 {
 public:
-	MtxtReader();
-	static bool canRead(QIODevice* device);
-
-private:
-	struct Mark {
-		QString token;
-		QTextCharFormat fmt;
-	};
-
-	void readData(QIODevice* device) override;
-	void parseLine(const QString& s, QVector<Mark>& stack, QTextCharFormat& base);
-	void toggle(QVector<Mark>& stack, const QString& token);
+    static bool canRead(QIODevice* device);
+    void readData(QIODevice* device) override;
 };
-
-#endif
