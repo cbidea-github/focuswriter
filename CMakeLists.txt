@@ -90,6 +90,8 @@ qt_add_executable(focuswriter
 	src/fileformats/rtf_reader.h
 	src/fileformats/rtf_tokenizer.h
 	src/fileformats/rtf_writer.h
+	src/fileformats/mtxt_reader.h
+	src/fileformats/mtxt_writer.h
 	src/fileformats/txt_reader.h
 	src/spelling/abstract_dictionary.h
 	src/spelling/abstract_dictionary_provider.h
