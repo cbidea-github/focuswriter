@@ -9,6 +9,7 @@
 #include "docx_writer.h"
 #include "odt_writer.h"
 #include "rtf_writer.h"
+#include "blm_writer.h"
 #include "mtxt_writer.h"
 
 #include <QFile>
@@ -68,6 +69,10 @@ bool DocumentWriter::write()
 	} else if (m_type == "rtf") {
 		file.setTextModeEnabled(true);
 		RtfWriter writer;
+		saved = writer.write(&file, m_document);
+	} else if (m_type == "blm") {
+		file.setTextModeEnabled(true);
+		BlmWriter writer;
 		saved = writer.write(&file, m_document);
 	} else if (m_type == "mtxt") {
 		file.setTextModeEnabled(true);

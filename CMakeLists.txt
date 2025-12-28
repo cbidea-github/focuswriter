@@ -90,6 +90,8 @@ qt_add_executable(focuswriter
 	src/fileformats/rtf_reader.h
 	src/fileformats/rtf_tokenizer.h
 	src/fileformats/rtf_writer.h
+	src/fileformats/blm_reader.h
+	src/fileformats/blm_writer.h
 	src/fileformats/mtxt_reader.h
 	src/fileformats/mtxt_writer.h
 	src/fileformats/txt_reader.h
@@ -158,6 +160,8 @@ qt_add_executable(focuswriter
 	src/fileformats/rtf_reader.cpp
 	src/fileformats/rtf_tokenizer.cpp
 	src/fileformats/rtf_writer.cpp
+	src/fileformats/blm_reader.cpp
+	src/fileformats/blm_writer.cpp
 	src/fileformats/mtxt_reader.cpp
 	src/fileformats/mtxt_writer.cpp
 	src/fileformats/txt_reader.cpp
