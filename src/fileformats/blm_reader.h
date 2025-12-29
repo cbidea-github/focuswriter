@@ -30,6 +30,9 @@ private:
     QTextCharFormat m_inline;
     QStack<QTextCharFormat> m_inlineStack;
 
+	// ---- baseline ----
+    QTextBlockFormat m_baselineBlockFormat;
+
     // ---- parser state ----
     bool m_inLiteral = false;
     bool m_usedInitialBlock = false;   // Qt implicit first block

@@ -32,6 +32,9 @@ void BlmReader::readData(QIODevice* device)
 
     m_cursor.beginEditBlock();
 
+	// Capturar el formato base real del documento (párrafo normal del tema)
+	m_baselineBlockFormat = m_cursor.blockFormat();
+
     // Inline must start from real document format
     m_inline = m_cursor.charFormat();
 
@@ -62,22 +65,29 @@ void BlmReader::processLine(const QString& line)
     QString buffer;
 
     auto ensureBlock = [&]() {
-        if (blockReady)
-            return;
+		if (blockReady)
+			return;
 
-        QTextBlockFormat bf;
-        bf.setAlignment(m_block.alignment);
-        bf.setHeadingLevel(m_block.heading);
+		QTextBlockFormat bf;
 
-        if (!m_usedInitialBlock) {
-            m_cursor.mergeBlockFormat(bf);
-            m_usedInitialBlock = true;
-        } else {
-            m_cursor.insertBlock(bf);
-        }
+		if (!m_usedInitialBlock) {
+			// Primer bloque real: usar baseline del documento
+			bf = m_baselineBlockFormat;
+			m_cursor.mergeBlockFormat(bf);
+			m_usedInitialBlock = true;
+		} else {
+			// Bloques siguientes: heredar del bloque anterior
+			bf = m_cursor.blockFormat();
+			m_cursor.insertBlock(bf, m_inline);
+		}
 
-        blockReady = true;
-    };
+		// Aplicar SOLO las propiedades de bloque que cambian
+		bf.setAlignment(m_block.alignment);
+		bf.setHeadingLevel(m_block.heading);
+		m_cursor.mergeBlockFormat(bf);
+
+		blockReady = true;
+	};
 
     auto flush = [&]() {
         if (!buffer.isEmpty()) {
