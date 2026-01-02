@@ -9,6 +9,7 @@
 #include <QTextStream>
 #include <QFont>
 #include <QTextBlockFormat>
+#include <QTextFormat>
 
 //------------------------------------------------------------
 
@@ -32,10 +33,7 @@ void BlmReader::readData(QIODevice* device)
 
     m_cursor.beginEditBlock();
 
-	// Capturar el formato base real del documento (párrafo normal del tema)
-	m_baselineBlockFormat = m_cursor.blockFormat();
-
-    // Inline must start from real document format
+    m_baselineBlockFormat = m_cursor.blockFormat();
     m_inline = m_cursor.charFormat();
 
     while (!stream.atEnd()) {
@@ -51,7 +49,7 @@ void BlmReader::processLine(const QString& line)
 {
     /* ===== Empty line → real newline ===== */
 
-    if (!m_inLiteral && line.trimmed().isEmpty()) {
+    if (line.trimmed().isEmpty()) {
 
         if (m_usedInitialBlock)
             m_cursor.insertBlock();
@@ -65,29 +63,27 @@ void BlmReader::processLine(const QString& line)
     QString buffer;
 
     auto ensureBlock = [&]() {
-		if (blockReady)
-			return;
+        if (blockReady)
+            return;
 
-		QTextBlockFormat bf;
+        QTextBlockFormat bf;
 
-		if (!m_usedInitialBlock) {
-			// Primer bloque real: usar baseline del documento
-			bf = m_baselineBlockFormat;
-			m_cursor.mergeBlockFormat(bf);
-			m_usedInitialBlock = true;
-		} else {
-			// Bloques siguientes: heredar del bloque anterior
-			bf = m_cursor.blockFormat();
-			m_cursor.insertBlock(bf, m_inline);
-		}
+        if (!m_usedInitialBlock) {
+            bf = m_baselineBlockFormat;
+            m_cursor.mergeBlockFormat(bf);
+            m_usedInitialBlock = true;
+        } else {
+            bf = m_cursor.blockFormat();
+            m_cursor.insertBlock(bf, m_inline);
+        }
 
-		// Aplicar SOLO las propiedades de bloque que cambian
-		bf.setAlignment(m_block.alignment);
-		bf.setHeadingLevel(m_block.heading);
-		m_cursor.mergeBlockFormat(bf);
+        bf.setAlignment(m_block.alignment);
+        bf.setIndent(m_block.indent);
+        bf.setHeadingLevel(m_block.heading);
+        m_cursor.mergeBlockFormat(bf);
 
-		blockReady = true;
-	};
+        blockReady = true;
+    };
 
     auto flush = [&]() {
         if (!buffer.isEmpty()) {
@@ -100,40 +96,69 @@ void BlmReader::processLine(const QString& line)
     int i = 0;
     while (i < line.size()) {
 
-        /* ===== Literal (absolute priority) ===== */
-
-        if (!m_inLiteral &&
-            i + 11 <= line.size() &&
-            line.mid(i, 11) == "\\{@literal@") {
-
-            m_inLiteral = true;
-            i += 11;
-            continue;
-        }
-
-        if (m_inLiteral) {
-            if (i + 11 <= line.size() &&
-                line.mid(i, 11) == "\\@literal@}") {
-
-                m_inLiteral = false;
-                i += 11;
-                continue;
-            }
-
-            buffer += line.at(i++);
-            continue;
-        }
-
-        /* ===== Page break token (state only) ===== */
+        /* ===== Page break: \{p}  (OPTION B) ===== */
 
         if (i + 4 <= line.size() &&
             line.mid(i, 4) == "\\{p}") {
+
+            flush();
+
+            // cerrar inline
+            m_inlineStack.clear();
+            m_inline = QTextCharFormat();
+
+            // resetear bloque
+            m_block = BlockState();
+            m_blockStack.clear();
+            m_ignoredAlignment = false;
+
+            // nuevo bloque con salto de página
+            QTextBlockFormat bf = m_baselineBlockFormat;
+            bf.setPageBreakPolicy(QTextFormat::PageBreak_AlwaysBefore);
+            m_cursor.insertBlock(bf);
+
+            m_usedInitialBlock = true;
 
             i += 4;
             continue;
         }
 
-        /* ===== Block open ===== */
+        /* ===== Escape: \{t … \t} ===== */
+
+        if (i + 3 <= line.size() &&
+            line.at(i) == '\\' &&
+            line.at(i + 1) == '{' &&
+            line.at(i + 2) == 't') {
+
+            i += 3;
+
+            // caso especial: \{t\t} → literal "\t}"
+            if (i + 2 < line.size() &&
+                line.at(i) == '\\' &&
+                line.at(i + 1) == 't' &&
+                line.at(i + 2) == '}') {
+
+                buffer += "\\t}";
+                i += 3;
+                continue;
+            }
+
+            // escape normal
+            while (i < line.size()) {
+                if (i + 2 < line.size() &&
+                    line.at(i) == '\\' &&
+                    line.at(i + 1) == 't' &&
+                    line.at(i + 2) == '}') {
+                    i += 3;
+                    break;
+                }
+                buffer += line.at(i++);
+            }
+
+            continue;
+        }
+
+        /* ===== Block open: alignment + optional indent ===== */
 
         if (i + 3 <= line.size() &&
             line.at(i) == '\\' &&
@@ -141,31 +166,47 @@ void BlmReader::processLine(const QString& line)
 
             QChar t = line.at(i + 2);
 
-            // ---- alignment (non-nesting) ----
             if (t == 'l' || t == 'r' || t == 'c' || t == 'j') {
 
-                // ignore nested alignment and remember it
+                int j = i + 3;
+                int indent = 0;
+                bool hasDigits = false;
+
+                while (j < line.size() && line.at(j).isDigit()) {
+                    hasDigits = true;
+                    indent = indent * 10 + line.at(j).digitValue();
+                    ++j;
+                }
+
+                if (indent > 9)
+                    indent = 9;
+
                 if (m_block.alignment != Qt::AlignLeft) {
                     m_ignoredAlignment = true;
-                    i += 3;
+                    i = j;
                     continue;
                 }
 
                 BlockState next = m_block;
 
-                if (t == 'l') next.alignment = Qt::AlignLeft;
-                if (t == 'r') next.alignment = Qt::AlignRight;
-                if (t == 'c') next.alignment = Qt::AlignCenter;
-                if (t == 'j') next.alignment = Qt::AlignJustify;
+                switch (t.unicode()) {
+                    case 'l': next.alignment = Qt::AlignLeft;    break;
+                    case 'r': next.alignment = Qt::AlignRight;   break;
+                    case 'c': next.alignment = Qt::AlignCenter;  break;
+                    case 'j': next.alignment = Qt::AlignJustify; break;
+                }
+
+                next.indent = hasDigits ? indent : 0;
 
                 m_blockStack.push(m_block);
                 m_block = next;
 
-                i += 3;
+                i = j;
                 continue;
             }
 
-            // ---- heading (non-nesting) ----
+            /* ===== Heading open ===== */
+
             if (t == 'h' &&
                 i + 3 < line.size() &&
                 line.at(i + 3).isDigit()) {
@@ -184,14 +225,12 @@ void BlmReader::processLine(const QString& line)
 
         /* ===== Block close ===== */
 
-        // alignment close
         if (i + 3 <= line.size() &&
             line.at(i) == '\\' &&
             (line.at(i + 1) == 'l' || line.at(i + 1) == 'r' ||
              line.at(i + 1) == 'c' || line.at(i + 1) == 'j') &&
             line.at(i + 2) == '}') {
 
-            // ignore close of ignored nested alignment
             if (m_ignoredAlignment) {
                 m_ignoredAlignment = false;
                 i += 3;
@@ -205,7 +244,6 @@ void BlmReader::processLine(const QString& line)
             continue;
         }
 
-        // heading close
         if (i + 4 <= line.size() &&
             line.at(i) == '\\' &&
             line.at(i + 1) == 'h' &&

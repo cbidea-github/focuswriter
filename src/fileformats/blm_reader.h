@@ -19,7 +19,8 @@ public:
 private:
     struct BlockState {
         Qt::Alignment alignment = Qt::AlignLeft;
-        int heading = 0; // 0 = none
+        int indent = 0;      // 0–9
+        int heading = 0;     // 0 = none
     };
 
     // ---- block state ----
@@ -30,13 +31,12 @@ private:
     QTextCharFormat m_inline;
     QStack<QTextCharFormat> m_inlineStack;
 
-	// ---- baseline ----
+    // ---- baseline ----
     QTextBlockFormat m_baselineBlockFormat;
 
     // ---- parser state ----
-    bool m_inLiteral = false;
-    bool m_usedInitialBlock = false;   // Qt implicit first block
-    bool m_ignoredAlignment = false;   // 🔑 ignored nested alignment
+    bool m_usedInitialBlock = false;
+    bool m_ignoredAlignment = false;
 
     void processLine(const QString& line);
 };

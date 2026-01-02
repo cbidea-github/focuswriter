@@ -22,7 +22,7 @@ static QByteArray alignmentToken(Qt::Alignment a)
     if (a & Qt::AlignRight)   return "r";
     if (a & Qt::AlignCenter)  return "c";
     if (a & Qt::AlignJustify) return "j";
-    return QByteArray(); // izquierda = implícita
+    return QByteArray(); // izquierda
 }
 
 static bool isBold(const QTextCharFormat& f)      { return f.fontWeight() == QFont::Bold; }
@@ -33,14 +33,15 @@ static bool isSuper(const QTextCharFormat& f)    { return f.verticalAlignment() 
 static bool isSub(const QTextCharFormat& f)      { return f.verticalAlignment() == QTextCharFormat::AlignSubScript; }
 
 //------------------------------------------------------------
-// Literal-safe write
+// Literal-safe write (escapes canónicos)
 //------------------------------------------------------------
 
 static void writeSafe(QIODevice* out, const QString& text)
 {
+    // Forma canónica \{t\t} se respeta y no se re-escapa
     static const QRegularExpression rx(
-		R"(\\\{@literal@|\\@literal@}|\\\{[bius^_]|\\[bius^_]\}|\\\{[rcjl]|\\[rcjl]\}|\\\{h\d|\\h\d\})"
-	);
+        R"(\\\{t\t\}|\\\{t|\\t\}|\\\{[lrcj]\d*|\\[lrcj]\}|\\\{h\d|\\h\d\}|\\\{[bius^_]|\\[bius^_]\})"
+    );
 
     int pos = 0;
     auto it = rx.globalMatch(text);
@@ -51,9 +52,22 @@ static void writeSafe(QIODevice* out, const QString& text)
         if (m.capturedStart() > pos)
             out->write(text.mid(pos, m.capturedStart() - pos).toUtf8());
 
-        out->write("\\{@literal@");
-        out->write(m.captured().toUtf8());
-        out->write("\\@literal@}");
+        const QString tok = m.captured();
+
+        // forma canónica: copiar tal cual
+        if (tok == "\\{t\\t}") {
+            out->write(tok.toUtf8());
+        }
+        // literal "\t}"
+        else if (tok == "\\t}") {
+            out->write("\\{t\\t}");
+        }
+        // resto de marcas
+        else {
+            out->write("\\{t");
+            out->write(tok.toUtf8());
+            out->write("\\t}");
+        }
 
         pos = m.capturedEnd();
     }
@@ -80,7 +94,7 @@ bool BlmWriter::write(QIODevice* out, const QTextDocument* doc)
 
         QString plain = block.text();
 
-        // ---------- Empty block: just newline ----------
+        // ---------- Empty block ----------
         if (plain.trimmed().isEmpty()) {
             out->write("\n");
             prevChar = QTextCharFormat();
@@ -89,7 +103,7 @@ bool BlmWriter::write(QIODevice* out, const QTextDocument* doc)
 
         QTextBlockFormat bf = block.blockFormat();
 
-        // ---------- Alignment (with visual fallback) ----------
+        // ---------- Alignment ----------
         Qt::Alignment a = bf.alignment();
         if (!(a & (Qt::AlignRight | Qt::AlignCenter | Qt::AlignJustify))) {
             if (block.layout()) {
@@ -101,15 +115,33 @@ bool BlmWriter::write(QIODevice* out, const QTextDocument* doc)
         }
 
         QByteArray alignTok = alignmentToken(a);
-        bool hasAlign = !alignTok.isEmpty();
+        bool isLeft = alignTok.isEmpty();
+
+        // ---------- Indent ----------
+        int indent = bf.indent();
+        if (indent > 9)
+            indent = 9;
+        if (indent < 0)
+            indent = 0;
 
         // ---------- Heading ----------
         int heading = bf.headingLevel();
         bool hasHeading = heading > 0;
 
         // ---------- Block open ----------
-        if (hasAlign)
-            out->write("\\{" + alignTok + "\n");
+        if (!isLeft || indent > 0) {
+            out->write("\\{");
+            if (!isLeft)
+                out->write(alignTok);
+            else
+                out->write("l");
+
+            if (indent > 0)
+                out->write(QByteArray::number(indent));
+
+            out->write("\n");
+        }
+
         if (hasHeading)
             out->write("\\{h" + QByteArray::number(heading) + "\n");
 
@@ -170,8 +202,12 @@ bool BlmWriter::write(QIODevice* out, const QTextDocument* doc)
         // ---------- Block close ----------
         if (hasHeading)
             out->write("\\h" + QByteArray::number(heading) + "}\n");
-        if (hasAlign)
-            out->write("\\" + alignTok + "}\n");
+
+        if (!isLeft || indent > 0) {
+            out->write("\\");
+            out->write(!isLeft ? alignTok : QByteArray("l"));
+            out->write("}\n");
+        }
 
         prevChar = QTextCharFormat();
     }
